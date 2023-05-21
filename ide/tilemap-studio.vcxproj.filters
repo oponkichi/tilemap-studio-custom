@@ -253,4 +253,7 @@
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\.変更点.txt" />
+  </ItemGroup>
 </Project>

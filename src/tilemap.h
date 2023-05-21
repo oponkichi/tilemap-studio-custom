@@ -23,12 +23,16 @@ public:
 	enum class Result { TILEMAP_OK, TILEMAP_BAD_FILE, TILEMAP_EMPTY, TILEMAP_TOO_SHORT_FF, TILEMAP_TOO_LONG_FF,
 		TILEMAP_TOO_SHORT_00, TILEMAP_TOO_LONG_00, TILEMAP_TOO_SHORT_RLE, TILEMAP_TOO_SHORT_ATTRS, TILEMAP_INVALID,
 		TILEMAP_NULL, ATTRMAP_BAD_FILE, ATTRMAP_TOO_SHORT, ATTRMAP_TOO_LONG, ATTRMAP_INVALID };
+
+	friend bool read_file_bytes(const char* f, std::vector<uchar>& bytes, Tilemap* pTilemap);
+
 private:
 	std::vector<Tile_Tessera *> _tiles;
 	size_t _width;
 	Result _result;
 	bool _modified;
 	std::deque<Tilemap_State> _history, _future;
+	std::vector<std::string> _tileset_files;
 public:
 	Tilemap();
 	~Tilemap();
@@ -49,6 +53,7 @@ public:
 	inline bool can_undo(void) const { return !_history.empty(); }
 	inline bool can_redo(void) const { return !_future.empty(); }
 	inline const Tilemap_State &last_state(void) const { return _history.back(); }
+	inline const std::vector<std::string>& tileset_files() const { return _tileset_files; }
 	void clear();
 	void reposition_tiles(int x, int y);
 	void remember(void);
@@ -58,7 +63,7 @@ public:
 	void limit_to_format(Tilemap_Format fmt);
 	void new_tiles(size_t w, size_t h);
 	Result read_tiles(const char *tf, const char *af);
-	bool write_tiles(const char *tf, const char *af, Tilemap_Format fmt);
+	bool write_tiles(const char *tf, const char *af, Tilemap_Format fmt, const std::vector<std::string>& tileset_files);
 	Result import_tiles(const char *tf, const char *af);
 	bool export_tiles(const char *f) const;
 	void print_tilemap(void) const;
@@ -66,6 +71,7 @@ public:
 private:
 	Result make_tiles(const std::vector<uchar> &tbytes, const std::vector<uchar> &abytes);
 	void export_c_tiles(FILE *file, const std::vector<uchar> &bytes, Tilemap_Format fmt, const char *f) const;
+	void export_c_tiles_header(FILE* file, Tilemap_Format fmt, const char* f) const;
 	void export_asm_tiles(FILE *file, const std::vector<uchar> &bytes, Tilemap_Format fmt, const char *f) const;
 	void export_csv_tiles(FILE *file, const std::vector<uchar> &bytes, Tilemap_Format fmt) const;
 public:

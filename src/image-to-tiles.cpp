@@ -392,7 +392,7 @@ Image_to_Tiles_Result Main_Window::image_to_tiles() {
 
 	// Create the tilemap file
 
-	if (!tilemap.write_tiles(tilemap_filename, attrmap_filename, fmt)) {
+	if (!tilemap.write_tiles(tilemap_filename, attrmap_filename, fmt, _tileset_files)) {
 		delete [] tiles;
 		std::string msg = "Could not write to ";
 		msg = msg + tilemap_basename + "!";

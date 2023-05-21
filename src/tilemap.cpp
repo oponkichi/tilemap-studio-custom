@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cctype>
+#include <filesystem>
 
 #pragma warning(push, 0)
 #include <FL/filename.H>
@@ -112,6 +113,7 @@ void Tilemap::clear() {
 	_modified = false;
 	_history.clear();
 	_future.clear();
+	_tileset_files.clear();
 }
 
 void Tilemap::reposition_tiles(int x, int y) {
@@ -480,31 +482,84 @@ Tilemap::Result Tilemap::make_tiles(const std::vector<uchar> &tbytes, const std:
 
 	_tiles.swap(tiles);
 	if (width > 0) { _width = width; }
-	else { guess_width(); }
+	else if(_width == 0) { guess_width(); }
 
 	return (_result = Result::TILEMAP_OK);
 }
 
-static bool read_file_bytes(const char *f, std::vector<uchar> &bytes) {
+static std::string read_tileset_files(FILE* file)
+{
+	std::string str;
+	while (true)
+	{
+		char c;
+		fread(&c, sizeof(c), 1, file);
+		str.push_back(c);
+		if (c == 0)
+		{
+			break;
+		}
+	}
+	return str;
+}
+
+bool read_file_bytes(const char *f, std::vector<uchar> &bytes, Tilemap* pTilemap) {
 	FILE *file = fl_fopen(f, "rb");
 	if (!file) { return false; }
 	size_t n = file_size(file);
 	bytes.reserve(n);
-	for (int b = fgetc(file); b != EOF; b = fgetc(file)) {
+	for (int b = fgetc(file); (b != EOF) && (b != 0xff); b = fgetc(file)) {
 		bytes.push_back((uchar)b);
 	}
+
+	//Read additional data of cstomized format.
+	if (pTilemap && !feof(file))
+	{
+		//Read tilemap width
+		size_t w;
+		fread(&w, sizeof(w), 1, file);
+		pTilemap->width(w);
+
+		//Read tileset files
+		size_t num_tilesets;
+		fread(&num_tilesets, sizeof(num_tilesets), 1, file);
+		if (num_tilesets > 0)
+		{
+			pTilemap->_tileset_files.clear();
+			pTilemap->_tileset_files.reserve(num_tilesets);
+
+			auto prev_current = std::filesystem::current_path();
+			std::filesystem::current_path(std::filesystem::path(f).parent_path().string());
+			for (size_t i = 0; i < num_tilesets; ++i)
+			{
+				auto filename = read_tileset_files(file);
+				auto fullpath = std::filesystem::absolute(filename);
+				pTilemap->_tileset_files.push_back(fullpath.string());
+			}
+
+			std::filesystem::current_path(prev_current);
+		}
+
+	}
+
 	fclose(file);
 	return true;
 }
 
 Tilemap::Result Tilemap::read_tiles(const char *tf, const char *af) {
 	std::vector<uchar> tbytes, abytes;
-	if (!read_file_bytes(tf, tbytes)) { return (_result = Result::TILEMAP_BAD_FILE); }
-	if (af && af[0] && !read_file_bytes(af, abytes)) { return (_result = Result::ATTRMAP_BAD_FILE); }
+	if (!read_file_bytes(tf, tbytes, this)) { return (_result = Result::TILEMAP_BAD_FILE); }
+	if (af && af[0] && !read_file_bytes(af, abytes, nullptr)) { return (_result = Result::ATTRMAP_BAD_FILE); }
+
 	return make_tiles(tbytes, abytes);
 }
 
-bool Tilemap::write_tiles(const char *tf, const char *af, Tilemap_Format fmt) {
+void write_string(const std::string& str, FILE* file)
+{
+	fwrite(str.c_str(), sizeof(str[0]), str.length() + 1, file);
+}
+
+bool Tilemap::write_tiles(const char *tf, const char *af, Tilemap_Format fmt, const std::vector<std::string>& tileset_files) {
 	FILE *file = fl_fopen(tf, "wb");
 	if (!file) { return false; }
 
@@ -523,6 +578,27 @@ bool Tilemap::write_tiles(const char *tf, const char *af, Tilemap_Format fmt) {
 		fwrite(bytes.data(), 1, bytes.size(), file);
 	}
 
+	const unsigned char mark = 0xff;
+	fwrite(&mark, sizeof(mark), 1, file);
+	const size_t w = width();
+	fwrite(&w, sizeof(w), 1, file);
+
+	const size_t num_tilesets = tileset_files.size();
+	fwrite(&num_tilesets, sizeof(num_tilesets), 1, file);
+	for (const auto& filename : tileset_files)
+	{
+		std::error_code error;
+		auto relpath = std::filesystem::relative(filename, std::filesystem::path(tf).parent_path(), error);
+		if (error.value() == 0)
+		{
+			write_string(relpath.string(), file);
+		}
+		else
+		{
+			write_string(filename, file);
+		}
+	}
+
 	fclose(file);
 	return true;
 }
@@ -538,6 +614,16 @@ bool Tilemap::export_tiles(const char *f) const {
 	}
 	else if (ends_with_ignore_case(f, ".c") || ends_with_ignore_case(f, ".h")) {
 		export_c_tiles(file, bytes, fmt, f);
+		if (ends_with_ignore_case(f, ".c"))
+		{
+			char header_name[MAX_PATH];
+			strcpy_s(header_name, f);
+			auto len = strlen(header_name);
+			header_name[len - 1] = 'h';
+			FILE* header_file = fl_fopen(header_name, "wb");
+			export_c_tiles_header(header_file, fmt, header_name);
+			fclose(header_file);
+		}
 	}
 	else {
 		export_asm_tiles(file, bytes, fmt, f);
@@ -570,35 +656,61 @@ void Tilemap::export_c_tiles(FILE *file, const std::vector<uchar> &bytes, Tilema
 	escape_filename(name, sizeof(name), f);
 	fprintf(file, "/*\n Tilemap: %zu x %zu, %s\n Exported by " PROGRAM_NAME "\n*/\n\n",
 		width(), height(), format_name(fmt));
+
+	fprintf(file, "#pragma bank %zu\n\n", 0);
+
 	if (fmt == Tilemap_Format::GBC_ATTRMAP) {
 		size_t nb = bytes.size() / 2;
-		fprintf(file, "unsigned char %s_tilemap[] = {", name);
+		fprintf(file, "const unsigned char %s_tilemap[] = {", name);
 		for (size_t i = 0; i < nb; i++) {
 			if (i % 12 == 0) fputs("\n ", file);
 			fprintf(file, " 0x%02x", bytes[i]);
 			if (i < nb - 1) fputc(',', file);
 		}
 		fputs("\n};\n\n", file);
-		fprintf(file, "unsigned char %s_attrmap[] = {", name);
+		fprintf(file, "const unsigned char %s_attrmap[] = {", name);
 		for (size_t i = 0; i < nb; i++) {
 			if (i % 12 == 0) fputs("\n ", file);
 			fprintf(file, " 0x%02x", bytes[nb+i]);
 			if (i < nb - 1) fputc(',', file);
 		}
 		fputs("\n};\n\n", file);
-		fprintf(file, "unsigned int %s_len = %zu;\n", name, nb);
+		//fprintf(file, "const unsigned int %s_len = %zu;\n", name, nb);
 	}
 	else {
 		size_t nb = bytes.size();
-		fprintf(file, "unsigned char %s_tilemap[] = {", name);
+		fprintf(file, "const unsigned char %s_tilemap[] = {", name);
 		for (size_t i = 0; i < nb; i++) {
 			if (i % 12 == 0) fputs("\n ", file);
 			fprintf(file, " 0x%02x", bytes[i]);
 			if (i < nb - 1) fputc(',', file);
 		}
 		fputs("\n};\n\n", file);
-		fprintf(file, "unsigned int %s_len = %zu;\n", name, nb);
+		//fprintf(file, "const unsigned int %s_len = %zu;\n", name, nb);
 	}
+}
+
+void Tilemap::export_c_tiles_header(FILE* file, Tilemap_Format fmt, const char* f) const
+{
+	char name[FL_PATH_MAX] = {};
+	escape_filename(name, sizeof(name), f);
+	fprintf(file, "/*\n Tilemap: %zu x %zu, %s\n Exported by " PROGRAM_NAME "\n*/\n\n",
+		width(), height(), format_name(fmt));
+
+	fprintf(file, "#pragma once\n\n");
+
+	fprintf(file, "#define %s_bank %zu\n", name, 0);
+	fprintf(file, "#define %s_width %zu\n", name, width());
+	fprintf(file, "#define %s_height %zu\n", name, height());
+
+	if (fmt == Tilemap_Format::GBC_ATTRMAP) {
+		fprintf(file, "extern const unsigned char %s_tilemap[];\n", name);
+		fprintf(file, "extern const unsigned char %s_attrmap[];\n", name);
+	}
+	else {
+		fprintf(file, "extern const unsigned char %s_tilemap[];\n", name);
+	}
+
 }
 
 void Tilemap::export_asm_tiles(FILE *file, const std::vector<uchar> &bytes, Tilemap_Format fmt, const char *f) const {

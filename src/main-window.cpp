@@ -1770,6 +1770,12 @@ void Main_Window::setup_tilemap(const char *basename, int old_tileset_size, cons
 	if (!_tilemap_file.empty()) {
 		store_recent_tilemap();
 	}
+
+	for (const auto& tileset_name : _tilemap.tileset_files())
+	{
+		load_tileset(tileset_name.c_str());
+	}
+
 	update_tilemap_metadata();
 	update_status(NULL);
 	update_active_controls();
@@ -1800,7 +1806,7 @@ void Main_Window::save_tilemap(bool force) {
 	const char *basename = fl_filename_name(filename);
 
 	if (_tilemap.modified() || force) {
-		if (!_tilemap.write_tiles(filename, attrmap_filename, Config::format())) {
+		if (!_tilemap.write_tiles(filename, attrmap_filename, Config::format(), _tileset_files)) {
 			std::string msg = "Could not write to ";
 			msg = msg + basename + "!";
 			_error_dialog->message(msg);
@@ -2237,8 +2243,12 @@ void Main_Window::import_cb(Fl_Widget *, Main_Window *mw) {
 	mw->import_tilemap(filename);
 }
 
+#include <filesystem>
 void Main_Window::export_cb(Fl_Widget *, Main_Window *mw) {
 	if (!mw->_tilemap.size()) { return; }
+
+	std::string basefilename =  std::filesystem::path(mw->_tilemap_file).stem().string();
+	mw->_tilemap_export_chooser->preset_file((basefilename + ".c").c_str());
 
 	int status = mw->_tilemap_export_chooser->show();
 	if (status == 1) { return; }
