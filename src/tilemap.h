@@ -33,12 +33,16 @@ private:
 	bool _modified;
 	std::deque<Tilemap_State> _history, _future;
 	std::vector<std::string> _tileset_files;
+
+	int _bank_number; // o—Íæ‚Ìƒoƒ“ƒN”Ô†
 public:
 	Tilemap();
 	~Tilemap();
 	inline size_t size(void) const { return _tiles.size(); }
 	inline size_t width(void) const { return _width; }
+	inline int bank_number() const { return _bank_number; }
 	void width(size_t w);
+	void bank_number(int bank);
 	void resize(size_t w, size_t h, int px, int py);
 	void shift(int dx, int dy);
 	void transpose(void);

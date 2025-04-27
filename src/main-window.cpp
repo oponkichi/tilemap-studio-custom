@@ -113,6 +113,14 @@ Main_Window::Main_Window(int x, int y, int w, int h, const char *) : Fl_Overlay_
 	_shift_tileset_tb = new Toolbar_Button(0, 0, 24, 24);
 	new Fl_Box(0, 0, 2, 24); new Spacer(0, 0, 2, 24); new Fl_Box(0, 0, 2, 24);
 	_image_to_tiles_tb = new Toolbar_Button(0, 0, 24, 24);
+
+	//Bank番号設定用のツールバー項目
+	new Fl_Box(0, 0, 2, 24); new Spacer(0, 0, 2, 24); new Fl_Box(0, 0, 2, 24);
+	wgt_w = text_width("Bank:", 4);
+	Label* _bank_label = new Label(0, 0, wgt_w, 24, "Bank:");
+	wgt_w = text_width("999", 2) + 30;
+	_bank_spinner = new Fl_Spinner(0, 0, wgt_w, 22);
+
 	_toolbar->end();
 	wy += _toolbar->h();
 	wh -= _toolbar->h();
@@ -580,6 +588,16 @@ Main_Window::Main_Window(int x, int y, int w, int h, const char *) : Fl_Overlay_
 	_obp1_tb->tooltip("OBP1");
 	_obp1_tb->image(OBP1_ICON);
 	_obp1_tb->callback((Fl_Callback *)obp1_cb, this);
+
+	//バンク指定用スピナー
+	_bank_spinner->minimum(0);
+	_bank_spinner->maximum(255);
+	_bank_spinner->step(1);
+	_bank_spinner->value(0);
+	_bank_spinner->callback([](Fl_Widget* w, void* data) {
+		auto* mw = static_cast<Main_Window*>(data);
+		mw->_tilemap.bank_number(static_cast<int>(static_cast<Fl_Spinner*>(w)->value()));
+		}, this);
 
 	_transparency->color(OS_TAB_COLOR);
 	_transparency->box(FL_NO_BOX);
@@ -1755,6 +1773,8 @@ void Main_Window::setup_tilemap(const char *basename, int old_tileset_size, cons
 
 	_tilemap_width->default_value(_tilemap.width());
 	tilemap_width_tb_cb(NULL, this);
+
+	_bank_spinner->value(_tilemap.bank_number());
 
 	_tilemap_basename = basename;
 

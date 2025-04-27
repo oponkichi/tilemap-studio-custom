@@ -11,7 +11,7 @@
 #include "config.h"
 #include "version.h"
 
-Tilemap::Tilemap() : _tiles(), _width(0), _result(Result::TILEMAP_NULL), _modified(false), _history(), _future() {}
+Tilemap::Tilemap() : _tiles(), _width(0), _result(Result::TILEMAP_NULL), _modified(false), _history(), _future(), _bank_number(0) {}
 
 Tilemap::~Tilemap() {
 	clear();
@@ -24,6 +24,11 @@ void Tilemap::width(size_t w) {
 		Tile_Tessera *tt = _tiles[i];
 		tt->coords(i / w, i % w);
 	}
+}
+
+void Tilemap::bank_number(int bank) {
+	_bank_number = bank;
+	_modified = true;
 }
 
 void Tilemap::resize(size_t w, size_t h, int px, int py) {
@@ -503,9 +508,30 @@ static std::string read_tileset_files(FILE* file)
 	return str;
 }
 
+#define HEADER_MARK "tilemap:ver"
+
+
 bool read_file_bytes(const char *f, std::vector<uchar> &bytes, Tilemap* pTilemap) {
 	FILE *file = fl_fopen(f, "rb");
 	if (!file) { return false; }
+
+	//ヘッダを読み込んでバージョン判別
+	char header[sizeof(HEADER_MARK)];
+	fread(header, 1, sizeof(header)-1, file);
+
+	int file_ver = -1;
+	if (memcmp(header, HEADER_MARK, sizeof(HEADER_MARK)-1) == 0)
+	{
+		char szVer[5] = "xxxx";
+		fread(szVer, 1, 4, file);
+		file_ver = atoi(szVer);
+		fseek(file, sizeof(HEADER_MARK) + 4, 0);
+	}
+	else
+	{
+		fseek(file, 0, 0);
+	}
+
 	size_t n = file_size(file);
 	bytes.reserve(n);
 	for (int b = fgetc(file); (b != EOF) && (b != 0xff); b = fgetc(file)) {
@@ -519,6 +545,13 @@ bool read_file_bytes(const char *f, std::vector<uchar> &bytes, Tilemap* pTilemap
 		size_t w;
 		fread(&w, sizeof(w), 1, file);
 		pTilemap->width(w);
+
+		if (file_ver >= 0)
+		{
+			int bank;
+			fread(&bank, sizeof(bank), 1, file);
+			pTilemap->_bank_number = bank;
+		}
 
 		//Read tileset files
 		size_t num_tilesets;
@@ -563,6 +596,10 @@ bool Tilemap::write_tiles(const char *tf, const char *af, Tilemap_Format fmt, co
 	FILE *file = fl_fopen(tf, "wb");
 	if (!file) { return false; }
 
+	//カスタムフォーマットであることを示すヘッダを書き込み
+	const char header[] = HEADER_MARK"0000";
+	fwrite(header, 1, 16, file);
+
 	std::vector<uchar> bytes = make_tilemap_bytes(_tiles, fmt, width(), height());
 	if (fmt == Tilemap_Format::GBC_ATTRMAP) {
 		FILE *attr_file = fl_fopen(af, "wb");
@@ -582,6 +619,9 @@ bool Tilemap::write_tiles(const char *tf, const char *af, Tilemap_Format fmt, co
 	fwrite(&mark, sizeof(mark), 1, file);
 	const size_t w = width();
 	fwrite(&w, sizeof(w), 1, file);
+
+	const size_t bank = bank_number();
+	fwrite(&bank, sizeof(bank), 1, file);
 
 	const size_t num_tilesets = tileset_files.size();
 	fwrite(&num_tilesets, sizeof(num_tilesets), 1, file);
@@ -657,7 +697,7 @@ void Tilemap::export_c_tiles(FILE *file, const std::vector<uchar> &bytes, Tilema
 	fprintf(file, "/*\n Tilemap: %zu x %zu, %s\n Exported by " PROGRAM_NAME "\n*/\n\n",
 		width(), height(), format_name(fmt));
 
-	fprintf(file, "#pragma bank %zu\n\n", 0);
+	fprintf(file, "#pragma bank %zu\n\n", bank_number());
 
 	if (fmt == Tilemap_Format::GBC_ATTRMAP) {
 		size_t nb = bytes.size() / 2;
@@ -699,7 +739,7 @@ void Tilemap::export_c_tiles_header(FILE* file, Tilemap_Format fmt, const char* 
 
 	fprintf(file, "#pragma once\n\n");
 
-	fprintf(file, "#define %s_bank %zu\n", name, 0);
+	fprintf(file, "#define %s_bank %zu\n", name, bank_number());
 	fprintf(file, "#define %s_width %zu\n", name, width());
 	fprintf(file, "#define %s_height %zu\n", name, height());
 

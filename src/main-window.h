@@ -61,6 +61,7 @@ private:
 		*_zoom_in_tb, *_zoom_out_tb;
 	Toolbar_Toggle_Button *_grid_tb, *_rainbow_tiles_tb, *_bold_palettes_tb;
 	Default_Spinner *_tilemap_width;
+	Fl_Spinner* _bank_spinner;
 	Toolbar_Button *_resize_tb, *_shift_tb, *_reformat_tb;
 	Toolbar_Button *_tileset_width_tb, *_shift_tileset_tb;
 	Toolbar_Button *_image_to_tiles_tb;
